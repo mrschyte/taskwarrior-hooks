@@ -1,108 +1,161 @@
 import subprocess
 import time
 import json
-import sys
-import pprint
 import functools
+import argparse
 
-def load(path):
-    p = subprocess.Popen(['task', 'rc.data.location={}'.format(path), 'export'],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
-    out, err = p.communicate()
+from colorama import init, Fore, Back, Style
 
-    if p.returncode != 0:
-        raise 'Error running command'
+class TaskWarriorException(Exception):
+    def __init__(self, ret, out, err):
+        self.ret = ret
+        self.out = out
+        self.err = err
 
-    return json.loads(out.decode('utf-8'))
+    def __str__(self):
+        return 'Command failed with error {}'.format(self.ret)
 
-def save(path, data):
-    p = subprocess.Popen(['task', 'rc.data.location={}'.format(path), 'import'],
-                            stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
+class Task(object):
+    def __init__(self, dsrc, data):
+        self.dsrc = dsrc
+        self.data = data
 
-    out, err = p.communicate(input=json.dumps(data).encode('utf-8'))
-    sys.stdout.buffer.write(out)
+    def __lt__(self, other):
+        return self.modified() < other.modified()
 
-    if p.returncode != 0:
-        raise 'Error running command'
+    def __repr__(self):
+        return repr(self.data)
+
+    def annotations(self):
+        if 'annotations' not in self.data:
+            return []
+        return self.data['annotations']
+
+    def set_annotations(self, annotations):
+        self.data['annotations'] = annotations
+
+    def status(self):
+        return self.data['status']
+
+    def set_status(self, status):
+        self.data['status'] = status
+
+    def urgency(self):
+        return self.data['urgency']
+
+    def set_urgency(self, urgency):
+        self.data['urgency'] = urgency
+
+    def modified(self):
+        def parsetime(s):
+            return time.strptime(s, '%Y%m%dT%H%M%SZ')
+        return parsetime(self.data['modified'])
+
+    def merge(self, other):
+        if self.modified() > other.modified():
+            return other.merge(self)
+        
+        if self.dsrc == other.dsrc:
+            return other
+        else:
+            other.set_annotations(unique(self.annotations() + other.annotations(), sort=True,
+                                         key=lambda ann: ann['description']))
+
+            if self.status() == 'completed':
+                other.set_status('completed')
+                other.set_urgency(0)
+
+            return other
 
 def identity(*args):
     if len(args) == 1:
         return args[0]
     return args
 
-def unique(xs, key=identity):
+def unique(xs, sort=False, key=identity):
+    if sort:
+        items = sorted(xs, key=key)
+    else:
+        items = xs
+
     seen = set()
-    return [x for x in xs if not
+    return [x for x in items if not
             (key(x) in seen or seen.add(key(x)))]
 
-def parsetime(s):
-    return time.strptime(s, '%Y%m%dT%H%M%SZ')
+class Database(object):
+    def __init__(self, path):
+        self.path = path
+        self.tasks = self.load()
+        
+    def load(self):
+        p = subprocess.Popen(['task', 'rc.data.location={}'.format(self.path), 'export'],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        out, err = p.communicate()
 
-def mergetask(t1, t2):
-    time1 = parsetime(t1['modified'])
-    time2 = parsetime(t2['modified'])
+        if p.returncode != 0:
+            raise TaskWarriorException(p.returncode, out, err)
 
-    assert time1 < time2
+        self.data = [Task(self, task) for task in json.loads(out.decode('utf-8'))]
+        return out, err
 
-    if 'annotations' in t2:
-        if 'annotations' not in t1:
-            t1['annotations'] = []
-        t1['annotations'].extend(t2['annotations'])
+    def save(self):
+        p = subprocess.Popen(['task', 'rc.data.location={}'.format(self.path), 'import'],
+                                stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
 
-    if t2['status'] == 'completed':
-        t1['status'] = 'completed'
-        t1['urgency'] = 0
+        data = json.dumps([task.data for task in self.data])
+        out, err = p.communicate(input=data.encode('utf-8'))
 
-    return t1
+        if p.returncode != 0:
+            raise TaskWarriorException(p.returncode, out, err)
 
-def mergeall(tasks):
-    if len(tasks) == 0:
-        return None
-    
-    if len(tasks) == 1:
-        return list(tasks.values())[0]
+        return out, err
 
-    res = [functools.reduce(mergetask, value[1:], value[0])
-            for value in tasks.values()]
-    return res
-    
-def merge(local, remote, merged):
-    export = load(local) + load(remote)
-    tasks = {}
+    def merge(self, other):
+        export = self.data + other.data
+        tasks = {}
 
-    for task in sorted(export, key=lambda task: parsetime(task['modified'])):
-        if task['uuid'] not in tasks:
-            tasks[task['uuid']] = []
+        for task in sorted(export):
+            if task.data['uuid'] not in tasks:
+                tasks[task.data['uuid']] = []
 
-        tasks[task['uuid']].append(task)
+            tasks[task.data['uuid']].append(task)
 
-    pprint.pprint(tasks)
-    save(merged, mergeall(tasks))
+        if len(tasks) == 0:
+            self.data = []
+        elif len(tasks) == 1:
+            self.data = list(tasks.values())[0]
+        else:
+            self.data = [functools.reduce(lambda task, other: task.merge(other),
+                                          value[1:], value[0])
+                         for value in tasks.values()]
 
-def load(path):
-    p = subprocess.Popen(['task', 'rc.data.location={}'.format(path), 'export'],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
-    out, err = p.communicate()
+def do_merge(local, remote):
+    local = Database(local)
+    remote = Database(remote)
 
-    if p.returncode != 0:
-        raise 'Error running command'
+    local.merge(remote)
+    out, err = local.save()
 
-    return json.loads(out.decode('utf-8'))
+    print(Fore.CYAN + out.decode('utf-8') + Style.RESET_ALL)
+    print(Fore.RED + err.decode('utf-8') + Style.RESET_ALL)
 
-def save(path, data):
-    p = subprocess.Popen(['task', 'rc.data.location={}'.format(path), 'import'],
-                            stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
+def __main__():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("local")
+    parser.add_argument("remote")
+    args = parser.parse_args()
 
-    out, err = p.communicate(input=json.dumps(data).encode('utf-8'))
-    sys.stdout.buffer.write(out)
+    do_merge(args.local, args.remote)
 
-    if p.returncode != 0:
-        raise 'Error running command'
+if __name__ == "__main__":
+    init()
 
-merge(sys.argv[1], sys.argv[2], sys.argv[3])
+    try:
+        __main__()
+    except TaskWarriorException as ex:
+        print(Fore.CYAN + ex.out + Style.RESET_ALL)
+        print(Fore.RED + ex.err + Style.RESET_ALL)
