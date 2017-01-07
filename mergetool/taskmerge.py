@@ -6,6 +6,21 @@ import argparse
 
 from colorama import init, Fore, Back, Style
 
+def identity(*args):
+    if len(args) == 1:
+        return args[0]
+    return args
+
+def unique(xs, sort=False, key=identity):
+    if sort:
+        items = sorted(xs, key=key)
+    else:
+        items = xs
+
+    seen = set()
+    return [x for x in items if not
+            (key(x) in seen or seen.add(key(x)))]
+
 class TaskWarriorException(Exception):
     def __init__(self, ret, out, err):
         self.ret = ret
@@ -69,21 +84,6 @@ class Task(object):
                 other.set_urgency(0)
 
             return other
-
-def identity(*args):
-    if len(args) == 1:
-        return args[0]
-    return args
-
-def unique(xs, sort=False, key=identity):
-    if sort:
-        items = sorted(xs, key=key)
-    else:
-        items = xs
-
-    seen = set()
-    return [x for x in items if not
-            (key(x) in seen or seen.add(key(x)))]
 
 class Database(object):
     def __init__(self, path):
