@@ -51,6 +51,9 @@ class Task(object):
             return time.strptime(s, '%Y%m%dT%H%M%SZ')
         return parsetime(self.data['modified'])
 
+    def uuid(self):
+        return self.data['uuid']
+
     def merge(self, other):
         if self.modified() > other.modified():
             return other.merge(self)
@@ -118,10 +121,10 @@ class Database(object):
         tasks = {}
 
         for task in sorted(export):
-            if task.data['uuid'] not in tasks:
-                tasks[task.data['uuid']] = []
+            if task.uuid() not in tasks:
+                tasks[task.uuid()] = []
 
-            tasks[task.data['uuid']].append(task)
+            tasks[task.uuid()].append(task)
 
         if len(tasks) == 0:
             self.data = []
