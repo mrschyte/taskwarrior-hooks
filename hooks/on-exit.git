@@ -1,0 +1,7 @@
+#!/bin/sh
+
+DATA="$(echo $5 | cut -f2 -d:)"
+/usr/bin/git -C "${DATA}" diff --exit-code &> /dev/null
+if [[ $? -ne 0 ]]; then
+    /usr/bin/git -C "${DATA}" commit -a -m "$(echo $2 | cut -f2- -d:)" &> /dev/null
+fi

@@ -1,0 +1,10 @@
+#!/bin/sh
+
+DATA="$(echo $5 | cut -f2 -d:)"
+
+if [[ "$(echo $3 | cut -f2 -d:)" = "synchronize" ]]; then
+    /usr/bin/git -C "${DATA}" pull &> /dev/null
+    /usr/bin/git -C "${DATA}" push &> /dev/null
+    echo Synchronized with git upstream.
+    exit 1
+fi
