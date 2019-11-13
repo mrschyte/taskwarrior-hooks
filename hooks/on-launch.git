@@ -7,9 +7,9 @@ fi
 DATA="$(echo $5 | cut -f2 -d:)"
 if [[ "$(echo $3 | cut -f2 -d:)" = "synchronize" ]]; then
     # Call original `task sync`
-	DISABLE_HOOKS=true /usr/bin/env task sync
-	# Call git push
-	/usr/bin/git -C "${DATA}" pull &> /dev/null
+    DISABLE_HOOKS=true /usr/bin/env task sync
+    # Call git push
+    /usr/bin/git -C "${DATA}" pull &> /dev/null
     /usr/bin/git -C "${DATA}" push &> /dev/null
     echo Synchronized with git upstream.
     exit 1
