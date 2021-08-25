@@ -1,16 +1,16 @@
 #!/bin/sh
 
-if [[ "${DISABLE_HOOKS}" = "true" ]]; then
+if [ "${DISABLE_HOOKS}" = "true" ]; then
     exit 0;
 fi
 
 DATA="$(echo $5 | cut -f2 -d:)"
-if [[ "$(echo $3 | cut -f2 -d:)" = "synchronize" ]]; then
+if [ "$(echo $3 | cut -f2 -d:)" = "synchronize" ]; then
     # Call original `task sync`
     DISABLE_HOOKS=true /usr/bin/env task sync
     # Call git push
-    /usr/bin/git -C "${DATA}" pull &> /dev/null
-    /usr/bin/git -C "${DATA}" push &> /dev/null
+    /usr/bin/git -C "${DATA}" pull 2>&1 >/dev/null
+    /usr/bin/git -C "${DATA}" push 2>&1 >/dev/null
     echo Synchronized with git upstream.
     exit 1
 fi
